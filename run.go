@@ -91,6 +91,7 @@ type RunRequest struct {
 	AdditionalInstructions string         `json:"additional_instructions,omitempty"`
 	Tools                  []Tool         `json:"tools,omitempty"`
 	Metadata               map[string]any `json:"metadata,omitempty"`
+	Stream                 bool           `json:"stream,omitempty"`
 
 	// Sampling temperature between 0 and 2. Higher values like 0.8 are  more random.
 	// lower values are more focused and deterministic.
@@ -248,6 +249,51 @@ func (c *Client) CreateRun(
 	}
 
 	err = c.sendRequest(req, &response)
+	return
+}
+
+type RunStreamResponseDelta struct {
+	Role    string           `json:"role"`
+	Content []MessageContent `json:"content"`
+	FileIDs []string         `json:"file_ids"`
+}
+
+type RunStreamResponse struct {
+	ID     string                 `json:"id"`
+	Object string                 `json:"object"`
+	Delta  RunStreamResponseDelta `json:"delta"`
+}
+
+type RunStream struct {
+	*streamReader[RunStreamResponse]
+}
+
+// CreateRunStream creates a new run with streaming support.
+func (c *Client) CreateRunStream(
+	ctx context.Context,
+	threadID string,
+	request RunRequest,
+) (stream *RunStream, err error) {
+	urlSuffix := fmt.Sprintf("/threads/%s/runs", threadID)
+	request.Stream = true
+	req, err := c.newRequest(
+		ctx,
+		http.MethodPost,
+		c.fullURL(urlSuffix),
+		withBody(request),
+		withBetaAssistantVersion(c.config.AssistantVersion),
+	)
+	if err != nil {
+		return
+	}
+
+	resp, err := sendRequestStream[RunStreamResponse](c, req)
+	if err != nil {
+		return
+	}
+	stream = &RunStream{
+		streamReader: resp,
+	}
 	return
 }
 
